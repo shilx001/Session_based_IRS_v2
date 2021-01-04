@@ -2,62 +2,6 @@ import tensorflow as tf
 import numpy as np
 import tensorflow.contrib.slim as slim
 
-
-class FeatureExtractor:
-    def __init__(self, state_dim, hidden_size=64, learning_rate=1e-4, seed=1, max_seq_length=32):
-        self.state_dim = state_dim
-        self.sess = tf.Session()
-        self.hidden_size = hidden_size
-        self.learning_rate = learning_rate
-        self.max_seq_length = max_seq_length
-        tf.set_random_seed(seed)
-        np.random.seed(seed)
-        self.input_state = tf.placeholder(dtype=tf.float32, shape=[None, self.max_seq_length, self.state_dim])
-        self.input_state_length = tf.placeholder(dtype=tf.float32, shape=[None, ])
-        self.input_reward = tf.placeholder(dtype=tf.float32, shape=[None, ])
-        self.feature = self.create_model(self.input_state, self.input_state_length)
-        self.weight = tf.Variable(tf.random_normal(shape=[self.hidden_size, 1], stddev=0.3, dtype=tf.float32))
-        self.bias = tf.Variable(tf.constant(0.0, dtype=tf.float32))
-        self.l2_norm = tf.nn.l2_loss(self.weight) + tf.nn.l2_loss(self.bias)
-        expected_output = tf.nn.relu(tf.matmul(self.feature, self.weight) + self.bias)
-        self.loss = tf.reduce_mean((expected_output - self.input_reward) ** 2) + 1e-5 * self.l2_norm
-        self.train_op = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
-        self.sess.run(tf.global_variables_initializer())
-
-    def create_model(self, input_state, input_length):
-        '''
-        build the rnn model.
-        :return: rnn model.
-        '''
-        with tf.variable_scope('feature_extract', reuse=False):
-            basic_cell = tf.contrib.rnn.BasicLSTMCell(num_units=self.hidden_size)
-            _, states = tf.nn.dynamic_rnn(basic_cell, input_state, dtype=tf.float32,
-                                          sequence_length=input_length)
-        return states[0]
-
-    def train(self, state, state_length, reward):
-        feed_state = np.reshape(state, [-1, self.max_seq_length, self.state_dim])
-        feed_length = np.reshape(state_length, [-1, ])
-        feed_reward = np.reshape(reward, [-1, ])
-        self.sess.run(self.train_op, feed_dict={self.input_state: feed_state, self.input_state_length: feed_length,
-                                                self.input_reward: feed_reward})
-        loss = self.sess.run(self.loss, feed_dict={self.input_state: feed_state, self.input_state_length: feed_length,
-                                                   self.input_reward: feed_reward})
-        return loss
-
-    def get_feature(self, state, length):
-        state = np.reshape(state, [-1, self.max_seq_length, self.state_dim])
-        return self.sess.run(self.feature, feed_dict={self.input_state: state, self.input_state_length: length})
-
-    def get_loss(self, state, state_length, reward):
-        feed_state = np.reshape(state, [-1, self.max_seq_length, self.state_dim])
-        feed_length = np.reshape(state_length, [-1, ])
-        feed_reward = np.reshape(reward, [-1, ])
-        loss = self.sess.run(self.loss, feed_dict={self.input_state: feed_state, self.input_state_length: feed_length,
-                                                   self.input_reward: feed_reward})
-        return loss
-
-
 class TreePolicy:
     def __init__(self, state_dim, layer=3, branch=32, hidden_size=64, learning_rate=1e-4, seed=1,
                  stddev=0.03):

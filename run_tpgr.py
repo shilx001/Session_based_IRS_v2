@@ -3,10 +3,12 @@ import tensorflow as tf
 import pandas as pd
 import pickle
 from TreePolicy import *
+from FeatureExtractor import *
 import datetime
 import matplotlib.pyplot as plt
 from funk_svd import SVD
 
+model_name = 'convLSTM'
 np.random.seed(1)
 # data = pd.read_csv('ml-latest-small/ratings.csv')
 # data = pd.read_table('ratings.dat',sep='::',names=['userId','movieId','rating','timestep'])
@@ -104,7 +106,7 @@ for id1 in train_id[:100]:
 plt.figure()
 plt.plot(loss_list)
 plt.title('Training loss')
-plt.savefig('Train loss')
+plt.savefig('Train loss_'+model_name)
 
 '''
 print('Begin test for feature extraction.')
@@ -144,9 +146,9 @@ for id1 in test_id:
 plt.figure()
 plt.plot(loss_list)
 plt.title('Test loss')
-plt.savefig('Test loss')
+plt.savefig('Test loss_'+model_name)
 
-agent = TreePolicy(state_dim=hidden_size, layer=3, branch=16, learning_rate=1e-4)
+agent = TreePolicy(state_dim=hidden_size*2, layer=3, branch=16, learning_rate=1e-4)
 
 
 def normalize(rating):
@@ -248,6 +250,6 @@ for id1 in test_id:
     print('Precision: ', tp / (tp + fp + 1e-12), ' Recall: ', tp / (tp + fn + 1e-12))
     result.append([r, tp / (tp + fp + 1e-12), tp / (tp + fn + 1e-12)])
 
-pickle.dump(result, open('tpgr', mode='wb'))
+pickle.dump(result, open('tpgr_'+model_name, mode='wb'))
 print('Result:')
 print(np.mean(np.array(result).reshape([-1, 3]), axis=0))
