@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import pickle
-from TreePolicy import *
+from TreeActorCritic import *
 from FeatureExtractor import *
 import datetime
 import matplotlib.pyplot as plt
@@ -134,7 +134,7 @@ plt.plot(loss_list)
 plt.title('Test loss')
 plt.savefig('Test loss_' + model_name)
 
-agent = TreePolicy(state_dim=hidden_size * 2, layer=3, branch=16, learning_rate=1e-4)
+agent = TreeActorCritic(state_dim=hidden_size * 2, layer=3, branch=16, learning_rate=1e-4, discount_factor=0.6)
 
 
 def normalize(rating):
@@ -143,8 +143,7 @@ def normalize(rating):
     return -1 + 2 * (rating - min_rating) / (max_rating - min_rating)
 
 
-print('Begin training the tree policy.')
-discount_factor = 0.6
+print('Begin training the tree actor-critic.')
 train_step = 0
 loss_list = []
 for id1 in train_id:
@@ -152,6 +151,7 @@ for id1 in train_id:
     state = []
     rating = []
     action = []
+    next_state = []
     for _, row in user_record.iterrows():
         movie_feature = get_feature(row['i_id'])
         current_state = np.hstack((movie_feature.flatten(), row['rating']))
@@ -161,25 +161,32 @@ for id1 in train_id:
     state_list = []
     action_list = []
     reward_list = []
+    next_state_list = []
     for i in range(2, len(state)):
         current_state = state[:i - 1]
         current_state_length = i - 1
+        next_state = state[:i]
+        next_state_length = i
         temp_state = feature_extractor.state_padding(current_state, current_state_length)
+        temp_next_state = feature_extractor.state_padding(next_state, next_state_length)
         state_list.append(feature_extractor.get_feature(temp_state, [current_state_length]).flatten())
+        next_state_list.append(feature_extractor.get_feature(temp_next_state, [next_state_length]).flatten())
         action_list.append(action[i])
         reward_list.append(normalize(rating[i]))  # normalization of the ratings to 0,1
-    discount = discount_factor ** np.arange(len(reward_list))
-    Q_value = np.cumsum(reward_list[::-1])
-    Q_value = Q_value[::-1] * discount
-    loss = agent.train(state_list, action_list, Q_value)
+    loss = agent.train(state_list, action_list, reward_list, next_state_list)
     loss_list.append(loss)
     train_step += 1
     print('Step ', train_step, 'Loss: ', loss)
 
 plt.figure()
-plt.plot(loss_list)
-plt.title('Learning loss')
-plt.savefig('Tree learning loss')
+plt.plot(loss_list[0])
+plt.title('Actor loss')
+plt.savefig('actor loss')
+
+plt.figure()
+plt.plot(loss_list[1])
+plt.title('Critic loss')
+plt.savefig('critic loss')
 
 print('Begin Test')
 N = 32
@@ -222,6 +229,6 @@ for id1 in test_id:
     print('Precision: ', tp / (tp + fp + 1e-12), ' Recall: ', tp / (tp + fn + 1e-12))
     result.append([r, tp / (tp + fp + 1e-12), tp / (tp + fn + 1e-12)])
 
-pickle.dump(result, open('tpgr_' + model_name, mode='wb'))
+pickle.dump(result, open('tac_' + model_name, mode='wb'))
 print('Result:')
 print(np.mean(np.array(result).reshape([-1, 3]), axis=0))

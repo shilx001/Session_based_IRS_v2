@@ -74,3 +74,14 @@ class FeatureExtractor:
         loss = self.sess.run(self.loss, feed_dict={self.input_state: feed_state, self.input_state_length: feed_length,
                                                    self.input_reward: feed_reward})
         return loss
+
+    def state_padding(self, input_state, input_state_length):
+        if input_state_length > self.max_seq_length:
+            input_state = input_state[-self.max_seq_length:]
+            input_state_length = self.max_seq_length
+        input_state = np.array(input_state).reshape([input_state_length, self.state_dim])
+        if input_state_length < self.max_seq_length:
+            # padding the zero matrix.
+            padding_mat = np.zeros([self.max_seq_length - input_state_length, self.state_dim])
+            input_state = np.vstack((input_state, padding_mat))
+        return input_state
