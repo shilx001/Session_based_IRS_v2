@@ -15,9 +15,11 @@ class FeatureExtractor:
         self.input_state = tf.placeholder(dtype=tf.float32, shape=[None, self.max_seq_length, self.state_dim])
         self.input_state_length = tf.placeholder(dtype=tf.float32, shape=[None, ])
         self.input_reward = tf.placeholder(dtype=tf.float32, shape=[None, ])
-        self.feature = self.create_model_v2(self.input_state, self.input_state_length)
+        self.feature = self.create_model(self.input_state, self.input_state_length)
+        #self.feature = self.create_model_atem(self.input_state)
+        #self.feature = self.create_model_v2(self.input_state, self.input_state_length)
         self.weight = tf.Variable(
-            tf.random_normal(shape=[self.hidden_size * 2, 1], stddev=0.3, dtype=tf.float32))  # 这个要注意改动,convLSTM要乘以2
+            tf.random_normal(shape=[self.hidden_size, 1], stddev=0.3, dtype=tf.float32))  # 这个要注意改动,convLSTM要乘以2
         self.bias = tf.Variable(tf.constant(0.0, dtype=tf.float32))
         self.l2_norm = tf.nn.l2_loss(self.weight) + tf.nn.l2_loss(self.bias)
         expected_output = tf.nn.relu(tf.matmul(self.feature, self.weight) + self.bias)
@@ -52,6 +54,20 @@ class FeatureExtractor:
             net = tf.concat([max_pool, mean_pool], axis=1)
             net = tf.reshape(net, [-1, 2 * self.hidden_size])
         return net
+
+    def create_model_atem(self, input_state):
+        '''
+        build the ATEM model
+        :param input_state: input state.
+        :param input_length: input state length
+        :return: the ATEM model
+        '''
+        with tf.variable_scope('feature_extractor_atem', reuse=False):
+            item_embedding = slim.fully_connected(input_state, self.hidden_size)  # [N, max_seq_length,hidden_size]
+            attention_layer = slim.fully_connected(item_embedding, 1)
+            attention_weight = tf.nn.softmax(attention_layer)  # [N, max_seq_length, 1]
+            output_layer = tf.matmul(attention_weight, item_embedding, transpose_a=True) #[N, 1, hidden_size]
+        return tf.squeeze(output_layer)
 
     def train(self, state, state_length, reward):
         feed_state = np.reshape(state, [-1, self.max_seq_length, self.state_dim])

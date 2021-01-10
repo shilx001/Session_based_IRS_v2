@@ -10,7 +10,7 @@ from funk_svd import SVD
 
 model_name = 'convLSTM'
 np.random.seed(1)
-# data = pd.read_csv('ml-latest-small/ratings.csv')
+#data = pd.read_csv('ratings.csv', header=0, names=['u_id', 'i_id', 'rating', 'timestep'])
 # data = pd.read_table('ratings.dat',sep='::',names=['userId','movieId','rating','timestep'])
 data = pd.read_table('ratings.dat', sep='::', names=['u_id', 'i_id', 'rating', 'timestep'])
 user_idx = data['u_id'].unique()  # id for all the user
@@ -134,7 +134,7 @@ plt.plot(loss_list)
 plt.title('Test loss')
 plt.savefig('Test loss_' + model_name)
 
-agent = TreePolicy(state_dim=hidden_size * 2, layer=3, branch=16, learning_rate=1e-4)
+agent = TreePolicy(state_dim=hidden_size, layer=3, branch=16, learning_rate=1e-4)
 
 
 def normalize(rating):
@@ -144,7 +144,7 @@ def normalize(rating):
 
 
 print('Begin training the tree policy.')
-discount_factor = 0.6
+discount_factor = 1
 train_step = 0
 loss_list = []
 for id1 in train_id:
@@ -182,46 +182,76 @@ plt.title('Learning loss')
 plt.savefig('Tree learning loss')
 
 print('Begin Test')
-N = 32
+N = 100
 test_count = 0
 result = []
+
+
+def evaluate(recommend_id, item_id, rating, top_N):
+    '''
+    evalute the recommend result for each user.
+    :param recommend_id: the recommend_result for each item, a list that contains the results for each item.
+    :param item_id: item id.
+    :param rating: user's rating on item.
+    :param top_N: N, a real number of N for evaluation.
+    :return: reward@N, recall@N, MRR@N
+    '''
+    session_length = len(recommend_id)
+    relevant = 0
+    recommend_relevant = 0
+    output_reward = 0
+    mrr = 0
+    for ti in range(session_length):
+        current_recommend_id = list(recommend_id[ti])[:top_N]
+        current_item = item_id[ti]
+        current_rating = rating[ti]
+        if current_rating > 3.5:
+            relevant += 1
+            if current_item in current_recommend_id:
+                recommend_relevant += 1
+        if current_item in current_recommend_id:
+            output_reward += normalize(current_rating)
+            rank = current_recommend_id.index(current_item)
+            mrr += 1.0 / (rank + 1)
+    recall = recommend_relevant / relevant if relevant is not 0 else 0
+    precision = recommend_relevant / session_length
+    return output_reward / session_length, precision, recall, mrr / session_length
+
+
 for id1 in test_id:
     user_record = data[data['u_id'] == id1]
     all_state = []
-    tp = 0
-    fp = 0
-    fn = 0
-    tn = 0
-    r = 0
+    count = 0
+    all_recommend = []
+    all_item = []
+    all_rating = []
     for _, row in user_record.iterrows():
         movie_feature = get_feature(row['i_id'])
         current_state = np.hstack((movie_feature.flatten(), row['rating']))
         all_state.append(current_state)
         if len(all_state) > 1:
+            count += 1
             temp_state = all_state[:-1]
             temp_state_length = len(temp_state)
             temp_state = feature_extractor.state_padding(temp_state, temp_state_length)
             state_feature = feature_extractor.get_feature(temp_state, [temp_state_length])
             output_action = agent.get_action_prob(state_feature).flatten()
             output_action = output_action[:len(movie_id)]
-            recommend_idx = np.argsort(output_action)[:N]
-            recommend_movie = list(movie_id[recommend_idx])
-            if row['i_id'] in recommend_movie:
-                if row['rating'] > 3:
-                    tp += 1
-                else:
-                    fp += 1
-                r = normalize(row['rating'])
-            else:
-                if row['rating'] > 3:
-                    fn += 1
-                else:
-                    tn += 1
+            recommend_idx = np.argsort(-output_action)[:30]
+            recommend_movie = movie_id[recommend_idx]
+            all_recommend.append(recommend_movie)
+            all_item.append(row['i_id'])
+            all_rating.append(row['rating'])
+    reward_10, precision_10, recall_10, mkk_10 = evaluate(all_recommend, all_item, all_rating, 10)
+    reward_30, precision_30, recall_30, mkk_30 = evaluate(all_recommend, all_item, all_rating, 30)
     test_count += 1
     print('Test user #', test_count, '/', len(test_id))
-    print('Precision: ', tp / (tp + fp + 1e-12), ' Recall: ', tp / (tp + fn + 1e-12))
-    result.append([r, tp / (tp + fp + 1e-12), tp / (tp + fn + 1e-12)])
+    print('Reward@10: %.4f, Precision@10: %.4f, Recall@10: %.4f, MRR@10: %4f'
+          % (reward_10, precision_10, recall_10, mkk_10))
+    print('Reward@30: %.4f, Precision@30: %.4f, Recall@30: %.4f, MRR@30: %4f'
+          % (reward_30, precision_30, recall_30, mkk_30))
+    result.append([reward_10, precision_10, recall_10, mkk_10, reward_30, precision_30, recall_30, mkk_30])
 
 pickle.dump(result, open('tpgr_' + model_name, mode='wb'))
 print('Result:')
-print(np.mean(np.array(result).reshape([-1, 3]), axis=0))
+print(np.mean(np.array(result).reshape([-1, 8]), axis=0))

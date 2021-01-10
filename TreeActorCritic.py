@@ -92,6 +92,7 @@ class TreeActorCritic:
         :param state: input state, shape=[N, state_dim].
         :return: the probability for each action.
         '''
+        state = np.reshape(state, [-1, self.state_dim])
         return self.sess.run(self.output_action_prob, feed_dict={self.input_state: state})
 
     def train(self, state, action, reward, next_state):
