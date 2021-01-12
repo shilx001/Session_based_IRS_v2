@@ -10,8 +10,8 @@ from funk_svd import SVD
 
 model_name = 'convLSTM'
 np.random.seed(1)
-#data = pd.read_csv('ratings.csv',header=0,names=['u_id', 'i_id', 'rating', 'timestep'])
-data = pd.read_table('ratings.dat', sep='::', names=['u_id', 'i_id', 'rating', 'timestep'])
+data = pd.read_csv('ratings.csv', header=0, names=['u_id', 'i_id', 'rating', 'timestep'])
+# data = pd.read_table('ratings.dat', sep='::', names=['u_id', 'i_id', 'rating', 'timestep'])
 user_idx = data['u_id'].unique()  # id for all the user
 np.random.shuffle(user_idx)
 train_id = user_idx[:int(len(user_idx) * 0.8)]
@@ -41,7 +41,7 @@ for idx in train_id:  # 针对每个train数据
 # Funk SVD for item representation
 train = data[data['u_id'].isin(train_id)]
 test = data[data['u_id'].isin(test_id)]
-svd = SVD(learning_rate=1e-3, regularization=0.005, n_epochs=100, n_factors=128, min_rating=0, max_rating=5)
+svd = SVD(learning_rate=1e-3, regularization=0.005, n_epochs=200, n_factors=128, min_rating=0, max_rating=5)
 svd.fit(X=data, X_val=test, early_stopping=True, shuffle=False)
 item_matrix = svd.qi
 
@@ -66,12 +66,12 @@ state_dim = item_matrix.shape[1] + 1
 hidden_size = 64
 
 feature_extractor = FeatureExtractor(state_dim=state_dim, max_seq_length=max_seq_length, hidden_size=hidden_size,
-                                     learning_rate=1e-3)
+                                     learning_rate=1e-4)
 # Pre-training process to learn state features.
 print('Begin pre-train.')
 pre_train_step = 0
 loss_list = []
-for id1 in train_id[:100]:
+for id1 in train_id[:200]:
     user_record = data[data['u_id'] == id1]
     state = []
     rating = []
@@ -94,11 +94,6 @@ for id1 in train_id[:100]:
     loss_list.append(loss)
     pre_train_step += 1
     print('Pretrain step: ', pre_train_step, ' MSE:', loss)
-
-plt.figure()
-plt.plot(loss_list)
-plt.title('Training loss')
-plt.savefig('Train loss_' + model_name)
 
 '''
 print('Begin test for feature extraction.')
@@ -128,12 +123,7 @@ for id1 in test_id:
     print('test loss: ', ' MSE:', loss)
 '''
 
-plt.figure()
-plt.plot(loss_list)
-plt.title('Test loss')
-plt.savefig('Test loss_' + model_name)
-
-agent = TreeActorCritic(state_dim=hidden_size, layer=3, branch=16, learning_rate=1e-4, discount_factor=0.99)
+agent = TreeActorCritic(state_dim=hidden_size, layer=3, branch=16, a_lr=1e-4, c_lr=1e-4, discount_factor=1)
 
 
 def normalize(rating):
@@ -161,6 +151,7 @@ for id1 in train_id:
     action_list = []
     reward_list = []
     next_state_list = []
+    done_list = []
     for i in range(2, len(state)):
         current_state = state[:i - 1]
         current_state_length = i - 1
@@ -172,29 +163,16 @@ for id1 in train_id:
         next_state_list.append(feature_extractor.get_feature(temp_next_state, [next_state_length]).flatten())
         action_list.append(action[i])
         reward_list.append(normalize(rating[i]))  # normalization of the ratings to 0,1
-    loss = agent.train(state_list, action_list, reward_list, next_state_list)
+        if i is len(state) - 1:
+            done_list.append(1.0)
+        else:
+            done_list.append(0.0)
+    loss = agent.train(state_list, action_list, reward_list, next_state_list, done_list)
     loss_list.append(loss)
     train_step += 1
     print('Step ', train_step, 'Loss: ', loss)
 
-plt.figure()
-plt.plot(loss_list[0])
-plt.title('Actor loss')
-plt.savefig('actor loss')
-
-plt.figure()
-plt.plot(loss_list[1])
-plt.title('Critic loss')
-plt.savefig('critic loss')
-
 print('Begin Test')
-N = 30
-test_count = 0
-result = []
-
-
-print('Begin Test')
-N = 30
 test_count = 0
 result = []
 
@@ -211,6 +189,7 @@ def evaluate(recommend_id, item_id, rating, top_N):
     session_length = len(recommend_id)
     relevant = 0
     recommend_relevant = 0
+    selected = 0
     output_reward = 0
     mrr = 0
     for ti in range(session_length):
@@ -222,11 +201,12 @@ def evaluate(recommend_id, item_id, rating, top_N):
             if current_item in current_recommend_id:
                 recommend_relevant += 1
         if current_item in current_recommend_id:
+            selected += 1
             output_reward += normalize(current_rating)
             rank = current_recommend_id.index(current_item)
             mrr += 1.0 / (rank + 1)
     recall = recommend_relevant / relevant if relevant is not 0 else 0
-    precision = recommend_relevant / session_length
+    precision = recommend_relevant / selected if selected is not 0 else 0
     return output_reward / session_length, precision, recall, mrr / session_length
 
 
@@ -249,7 +229,7 @@ for id1 in test_id:
             state_feature = feature_extractor.get_feature(temp_state, [temp_state_length])
             output_action = agent.get_action_prob(state_feature).flatten()
             output_action = output_action[:len(movie_id)]
-            recommend_idx = np.argsort(-output_action)[:30]
+            recommend_idx = np.argsort(-output_action)[:100]
             recommend_movie = movie_id[recommend_idx]
             all_recommend.append(recommend_movie)
             all_item.append(row['i_id'])
@@ -265,5 +245,7 @@ for id1 in test_id:
     result.append([reward_10, precision_10, recall_10, mkk_10, reward_30, precision_30, recall_30, mkk_30])
 
 pickle.dump(result, open('tpgr_' + model_name, mode='wb'))
-print('Result:')
-print(np.mean(np.array(result).reshape([-1, 8]), axis=0))
+print('result:')
+display = np.mean(np.array(result).reshape([-1, 8]), axis=0)
+for num in display:
+    print('%.5f' % num)
