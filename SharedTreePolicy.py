@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow.contrib.slim as slim
 
 
-class TreePolicy:
+class SharedTreePolicy:
     def __init__(self, state_dim, layer=3, branch=32, hidden_size=64, learning_rate=1e-3, seed=1, max_seq_length=32,
                  stddev=0.03):
         self.state_dim = state_dim
@@ -20,8 +20,7 @@ class TreePolicy:
         self.input_state_length = tf.placeholder(dtype=tf.int32, shape=[None, ])
         self.input_action = tf.placeholder(dtype=tf.int32, shape=[None, ])
         self.input_reward = tf.placeholder(dtype=tf.float32, shape=[None, ])
-        self.tree = self.create_tree()
-        self.output_action_prob = self.forward_pass()
+        self.output_action_prob = self.forward_pass_v3()
         action_mask = tf.one_hot(self.input_action, self.branch ** self.layer)  # output the action of each node.
         prob_under_policy = tf.reduce_sum(self.output_action_prob * action_mask, axis=1)
         self.loss = -tf.reduce_mean(self.input_reward * tf.log(prob_under_policy + 1e-13), axis=0)
@@ -74,46 +73,81 @@ class TreePolicy:
             output_layer = tf.reduce_sum(output_layer, axis=1)
         return output_layer
 
-    def mlp(self, id=None):
+    def mlp(self, id=None, softmax_activation=False):
         '''
         Create a multi-layer neural network as tree node.
         :param id: tree node id
         :param reuse: reuse for the networks
         :return: a multi-layer neural network with output dim equals to branch size.
         '''
-        with tf.variable_scope('node_' + str(id), reuse=False):
-            state = self.feature_extract(self.input_state)
+        with tf.variable_scope('node_' + str(id), reuse=tf.AUTO_REUSE):
+            state = self.feature_extract_caser(self.input_state)
             l1 = slim.fully_connected(state, self.hidden_size)
             l2 = slim.fully_connected(l1, self.hidden_size)
-            l3 = slim.fully_connected(l2, self.branch)
-            outputs = tf.nn.softmax(l3)
+            l3 = slim.fully_connected(l2, self.hidden_size)
+            if softmax_activation:
+                outputs = tf.nn.softmax(l3)
+            else:
+                outputs = l3
         return outputs  # [N, branch]
-
-
-    def create_tree(self):
-        '''
-        Build the tree-structure policy.
-        :return: a list of nodes, each item denotes a layer.
-        '''
-        # total_nodes = int((self.branch ** self.layer - 1) / (self.branch - 1))
-        layer_nodes = []
-        for i in range(self.layer):
-            current_layer = [self.mlp(id=str(i) + '_' + str(_)) for _ in range(int(self.branch ** i))]
-            layer_nodes.append(current_layer)
-        return layer_nodes
 
     def forward_pass(self):
         '''
         Calculate output probability for each item.
         :return: a tensor of the tree policy.
         '''
-        root_node = self.tree[0]
-        root_output = root_node[0]
+        node = self.mlp(id='node')
+        root_output = node
         for i in range(1, self.layer):  # for each layer
             current_output = []
             for j in range(self.branch ** i):  # for each leaf node
-                current_layer = self.tree[i]
-                current_output.append(tf.reshape(root_output[:, j], [-1, 1]) * current_layer[j])
+                current_output.append(tf.expand_dims(root_output[:, j], axis=1) * node)
+            root_output = tf.concat(current_output, axis=1)  # [N, branch**i], update root_output.
+        return root_output
+
+    def forward_pass_v2(self):
+        '''
+        Calculate output probability for each item, with shared parameter for each layer.
+        :return: a tensor of the tree policy.
+        '''
+        node = [self.mlp(id=str(_)) for _ in range(self.layer)]
+        root_output = node[0]
+        for i in range(1, self.layer):  # for each layer
+            current_output = []
+            for j in range(self.branch ** i):  # for each leaf node
+                current_output.append(tf.expand_dims(root_output[:, j], axis=1) * node[i])
+            root_output = tf.concat(current_output, axis=1)  # [N, branch**i], update root_output.
+        return root_output
+
+    def forward_pass_v3(self):
+        '''
+        Partial shared layer parameter.
+        :return: a tensor of the tree policy.
+        '''
+        node = [self.mlp(id=str(_), softmax_activation=False) for _ in range(self.layer)]
+        root_output = node[0]
+        for i in range(1, self.layer):  # for each layer
+            current_output = []
+            for j in range(self.branch ** i):  # for each leaf node
+                current_node = slim.fully_connected(node[i], num_outputs=self.branch, activation_fn=tf.nn.relu)
+                current_node = slim.fully_connected(current_node, num_outputs=self.branch, activation_fn=tf.nn.softmax)
+                current_output.append(tf.expand_dims(root_output[:, j], axis=1) * current_node)
+            root_output = tf.concat(current_output, axis=1)  # [N, branch**i], update root_output.
+        return root_output
+
+    def forward_pass_v4(self):
+        '''
+        Calculate output probability for each item. shared policy with
+        :return: a tensor of the tree policy.
+        '''
+        node = self.mlp(id='node', softmax_activation=False)
+        root_output = node
+        for i in range(1, self.layer):  # for each layer
+            current_output = []
+            for j in range(self.branch ** i):  # for each leaf node
+                current_node = slim.fully_connected(node, num_outputs=self.branch, activation_fn=tf.nn.relu)
+                current_node = slim.fully_connected(current_node, num_outputs=self.branch, activation_fn=tf.nn.softmax)
+                current_output.append(tf.expand_dims(root_output[:, j], axis=1) * current_node)
             root_output = tf.concat(current_output, axis=1)  # [N, branch**i], update root_output.
         return root_output
 

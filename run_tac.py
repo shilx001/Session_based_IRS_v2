@@ -8,7 +8,7 @@ import datetime
 import matplotlib.pyplot as plt
 from funk_svd import SVD
 
-model_name = 'convLSTM'
+model_name = 'Original'
 np.random.seed(1)
 data = pd.read_csv('ratings.csv', header=0, names=['u_id', 'i_id', 'rating', 'timestep'])
 # data = pd.read_table('ratings.dat', sep='::', names=['u_id', 'i_id', 'rating', 'timestep'])
@@ -244,7 +244,7 @@ for id1 in test_id:
           % (reward_30, precision_30, recall_30, mkk_30))
     result.append([reward_10, precision_10, recall_10, mkk_10, reward_30, precision_30, recall_30, mkk_30])
 
-pickle.dump(result, open('tpgr_' + model_name, mode='wb'))
+pickle.dump(result, open('tac_' + model_name, mode='wb'))
 print('result:')
 display = np.mean(np.array(result).reshape([-1, 8]), axis=0)
 for num in display:

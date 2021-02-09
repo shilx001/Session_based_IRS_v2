@@ -2,13 +2,13 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import pickle
-from TreePolicy import *
+from SharedTreePolicy import *
 from FeatureExtractor import *
 import datetime
 import matplotlib.pyplot as plt
 from funk_svd import SVD
 
-model_name = 'Caser'
+model_name = 'LSTM'
 np.random.seed(1)
 tf.set_random_seed(1)
 data = pd.read_csv('ratings.csv', header=0, names=['u_id', 'i_id', 'rating', 'timestep'])
@@ -66,7 +66,7 @@ max_seq_length = 32
 state_dim = item_matrix.shape[1] + 1
 hidden_size = 64
 
-agent = TreePolicy(state_dim=state_dim, layer=3, branch=16, learning_rate=1e-4, max_seq_length=max_seq_length)
+agent = SharedTreePolicy(state_dim=state_dim, layer=3, branch=24, learning_rate=1e-4, max_seq_length=max_seq_length)
 
 
 def normalize(rating):
