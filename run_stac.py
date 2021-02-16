@@ -2,17 +2,15 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 import pickle
-from SharedTreePolicy import *
-from FeatureExtractor import *
+from SharedTreeActorCritic import *
 import datetime
 import matplotlib.pyplot as plt
 from funk_svd import SVD
 
-model_name = 'ATEM'
+model_name = 'Original'
 np.random.seed(1)
-tf.set_random_seed(1)
-#data = pd.read_csv('ratings.csv', header=0, names=['u_id', 'i_id', 'rating', 'timestep'])
-data = pd.read_table('ratings.dat', sep='::', names=['u_id', 'i_id', 'rating', 'timestep'])
+data = pd.read_csv('ratings.csv', header=0, names=['u_id', 'i_id', 'rating', 'timestep'])
+# data = pd.read_table('ratings.dat', sep='::', names=['u_id', 'i_id', 'rating', 'timestep'])
 user_idx = data['u_id'].unique()  # id for all the user
 np.random.shuffle(user_idx)
 train_id = user_idx[:int(len(user_idx) * 0.8)]
@@ -66,7 +64,8 @@ max_seq_length = 32
 state_dim = item_matrix.shape[1] + 1
 hidden_size = 64
 
-agent = SharedTreePolicy(state_dim=state_dim, layer=3, branch=24, learning_rate=1e-4, max_seq_length=max_seq_length)
+agent = SharedTreeActorCritic(state_dim=state_dim, layer=3, branch=24, hidden_size=hidden_size, a_lr=1e-4, c_lr=1e-4,
+                              discount_factor=1)
 
 
 def normalize(rating):
@@ -75,8 +74,7 @@ def normalize(rating):
     return -1 + 2 * (rating - min_rating) / (max_rating - min_rating)
 
 
-print('Begin training the tree policy.')
-discount_factor = 1
+print('Begin training the tree actor-critic.')
 train_step = 0
 loss_list = []
 for id1 in train_id:
@@ -84,6 +82,7 @@ for id1 in train_id:
     state = []
     rating = []
     action = []
+    next_state = []
     for _, row in user_record.iterrows():
         movie_feature = get_feature(row['i_id'])
         current_state = np.hstack((movie_feature.flatten(), row['rating']))
@@ -95,24 +94,32 @@ for id1 in train_id:
             state_length_list = []
             action_list = []
             reward_list = []
+            next_state_list = []
+            next_state_length_list = []
+            done_list = []
             for i in range(2, len(state)):
                 current_state = state[:i - 1]
                 current_state_length = i - 1
+                next_state = state[:i]
+                next_state_length = i
                 temp_state = agent.state_padding(current_state, current_state_length)
-                state_length_list.append(current_state_length)
+                temp_next_state = agent.state_padding(next_state, next_state_length)
                 state_list.append(temp_state)
+                state_length_list.append(current_state_length)
+                next_state_list.append(temp_next_state)
+                next_state_length_list.append(next_state_length)
                 action_list.append(action[i])
                 reward_list.append(normalize(rating[i]))  # normalization of the ratings to 0,1
-            discount = discount_factor ** np.arange(len(reward_list))
-            Q_value = np.cumsum(reward_list[::-1])
-            Q_value = Q_value[::-1] * discount
-            loss = agent.train(state_list, state_length_list, action_list, Q_value)
+                if i is 32:
+                    done_list.append(1.0)
+                else:
+                    done_list.append(0.0)
+            loss = agent.train(state_list, state_length_list, action_list, reward_list, next_state_list,
+                               next_state_length_list,
+                               done_list)
             loss_list.append(loss)
             train_step += 1
             print('Step ', train_step, 'Loss: ', loss)
-            state = []
-            rating = []
-            action = []
 
 print('Begin Test')
 test_count = 0
@@ -168,7 +175,7 @@ for id1 in test_id:
             temp_state = all_state[:-1]
             temp_state_length = len(temp_state)
             temp_state = agent.state_padding(temp_state, temp_state_length)
-            output_action = agent.get_action_prob(temp_state, temp_state_length).flatten()
+            output_action = agent.get_action_prob(temp_state, [temp_state_length]).flatten()
             output_action = output_action[:len(movie_id)]
             recommend_idx = np.argsort(-output_action)[:100]
             recommend_movie = movie_id[recommend_idx]
@@ -185,8 +192,8 @@ for id1 in test_id:
           % (reward_30, precision_30, recall_30, mkk_30))
     result.append([reward_10, precision_10, recall_10, mkk_10, reward_30, precision_30, recall_30, mkk_30])
 
-pickle.dump(result, open('tpgr_' + model_name, mode='wb'))
-print('Result:')
+pickle.dump(result, open('tac_' + model_name, mode='wb'))
+print('result:')
 display = np.mean(np.array(result).reshape([-1, 8]), axis=0)
 for num in display:
     print('%.5f' % num)

@@ -8,7 +8,7 @@ import datetime
 import matplotlib.pyplot as plt
 from funk_svd import SVD
 
-model_name = 'Caser'
+model_name = 'LSTM'
 np.random.seed(1)
 tf.set_random_seed(1)
 data = pd.read_csv('ratings.csv', header=0, names=['u_id', 'i_id', 'rating', 'timestep'])

@@ -5,7 +5,7 @@ import tensorflow.contrib.slim as slim
 
 class TreeActorCritic:
     def __init__(self, state_dim, layer=3, branch=32, hidden_size=64, a_lr=1e-4, c_lr=1e-3, seed=1,
-                 stddev=0.03, discount_factor=0.99):
+                 stddev=0.03, discount_factor=1):
         self.state_dim = state_dim
         self.sess = tf.Session()
         self.layer = layer
